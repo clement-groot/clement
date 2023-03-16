@@ -1,0 +1,67 @@
+import pandas as pd
+import numpy as np
+import mplfinance as mpf
+# Input parameters
+length = 20
+mult = 2.0
+fibonacci_levels = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.382, 1.618]
+
+# Load data
+uploaded = files.upload()
+df = pd.read_csv(io.BytesIO(uploaded['AAPL.csv']))
+df = df.set_index(pd.to_datetime(df["Date"], format="%Y-%m-%d"))
+df = df.drop("Date", axis=1)
+
+# Calculate Bollinger Bands
+basis = df["Close"].rolling(window=length).mean()
+dev = mult * df["Close"].rolling(window=length).std()
+upper = basis + dev
+lower = basis - dev
+
+# Calculate Fibonacci Retracement Levels
+window_size = len(df.index)
+price_high = df["High"].rolling(window=window_size).max()
+price_low = df["Low"].rolling(window=window_size).min()
+price_range = price_high - price_low
+
+print(price_range.shape)  # add this line to check the shape of price_range
+
+fibonacci_levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
+fib_levels = np.zeros((len(df.index), len(fibonacci_levels)))
+for i in range(len(df.index)):
+    price_range = price_high[i] - price_low[i]
+    fib_levels[i] = price_high[i] - np.array(fibonacci_levels) * price_range
+
+#fib_levels = price_high[:, np.newaxis] - np.array(fibonacci_levels)[np.newaxis, :] * price_range[:, np.newaxis]
+
+
+# Plot chart with Bollinger Bands and Fibonacci retracements
+mpf.plot(df, type="candle", style="charles", addplot=[
+    mpf.make_addplot(basis, color="blue", width=1),
+    mpf.make_addplot(upper, color="gray", width=1),
+    mpf.make_addplot(lower, color="gray", width=1),
+    mpf.make_addplot(fib_levels, color="orange", width=1, linestyle="dashed")
+], figratio=(16,9))
+
+# Buy and Sell signals
+df["Signal"] = 0
+df.loc[df["Close"] > lower, "Signal"] = 1
+df.loc[df["Close"] < upper, "Signal"] = -1
+
+# Exit signals
+df["Exit Price"] = 0
+df.loc[df["Signal"] == 1, "Exit Price"] = fib_levels[0]
+df.loc[df["Signal"] == -1, "Exit Price"] = fib_levels[-1]
+
+# Backtest
+df["Position"] = df["Signal"].shift()
+df["Position"].fillna(method="ffill", inplace=True)
+df["P&L"] = df["Position"] * (df["Close"].shift(-1) - df["Close"])
+total_profit = df["P&L"].sum()
+num_trades = df["Signal"].abs().sum()
+win_rate = df.loc[df["P&L"] > 0, "P&L"].count() / df.loc[df["P&L"] != 0, "P&L"].count()
+avg_profit = df.loc[df["P&L"] != 0, "P&L"].mean()
+print("Total Profit: $%.2f" % total_profit)
+print("Number of Trades: %d" % num_trades)
+print("Win Rate: %.2f%%" % (win_rate * 100))
+print("Average Profit per Trade: $%.2f" % avg_profit)
